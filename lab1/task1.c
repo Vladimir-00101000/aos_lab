@@ -1,21 +1,21 @@
 #include <stdio.h>
 #include <stdlib.h>
-#include <string.h>
+#include <unistd.h>
 #include <errno.h>
+#include <fcntl.h>
+
 
 int main() {
-    // Пытаемся открыть несуществующий файл
-    FILE *file = fopen("nonexistentfile.txt", "r");
+    int fd = open("example.txt", O_RDONLY); // Открываем несуществующий файл для чтения
 
-    if (file == NULL) {
-        // Вывод значения errno
+    if(fd == -1) {
+        printf("Ошибка выполнения системного вызова 'open':\n");
         printf("Value of errno: %d\n", errno);
-
-        // Вывод сообщения об ошибке из массива sys_errlist[]
-        printf("Error message using sys_errlist[]: %s\n", sys_errlist[errno]);
-
-        // Использование perror для вывода сообщения об ошибке
-        perror("Error message using perror");
+        printf("Message from sys_errlist: %s\n", sys_errlist[errno]);
+        perror("Error message via perror(): ");
+    } else {
+        close(fd);
+        printf("Системный вызов 'open' выполнен успешно.\n");
     }
 
     return 0;

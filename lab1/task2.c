@@ -1,59 +1,58 @@
+//gcc task2.c -o task2
+//./task2 example.txt 400
 #include <stdio.h>
-#include <stdlib.h>
-#include <unistd.h>
-#include <fcntl.h>
-#include <sys/stat.h>
+#include <stdlib.h> // функции общего назначения
+#include <fcntl.h> // файловые дескрипторы
+#include <unistd.h> //системные вызовы
 
 int main(int argc, char *argv[]) {
-    // Убедимся, что файл передан как аргумент командной строки
-    if (argc != 2) {
-        fprintf(stderr, "Необходимо указать имя файла!\n");
+    if (argc != 3) {
+        printf("Usage: %s <filename> <permissions>\n", argv[0]);
         return 1;
     }
 
-    const char* filename = argv[1];
-
-    // Создание нового файла с правом только на чтение
-    int fileDesc = open(filename, O_CREAT | O_WRONLY, S_IRUSR);
-    if (fileDesc == -1) {
-        perror("Ошибка при создании файла");
+    // Создание нового файла с указанными правами доступа
+    int fd = open(argv[1], O_CREAT | O_WRONLY | O_TRUNC, atoi(argv[2]));
+    if (fd == -1) {
+        perror("Unable to create file");
         return 1;
     }
 
-    // Запись информации в файл
-    if (write(fileDesc, "строка 1\n", 8) != 8 || write(fileDesc, "строка 2\n", 8) != 8 || write(fileDesc, "строка 3\n", 8) != 8) {
-        perror("Ошибка при записи данных");
+    // Запись в файл нескольких строк
+    write(fd, "First line\n", 11);
+    write(fd, "Second line\n", 12);
+
+    // Закрытие файла
+    close(fd);
+
+    // Повторное открытие файла на чтение и вывод содержимого
+    fd = open(argv[1], O_RDONLY);
+    if (fd == -1) {
+        perror("Unable to open file for reading");
         return 1;
     }
 
-    // Закрытие файла после записи
-    if (close(fileDesc) == -1) {
-        perror("Ошибка при закрытии файла");
+    char buffer[256];
+    int bytes_read;
+    while ((bytes_read = read(fd, buffer, sizeof(buffer))) > 0) {
+        write(1, buffer, bytes_read);  // Вывод содержимого на экран
+    }
+
+    // Закрытие файла
+    close(fd);
+
+    // Повторное открытие файла на чтение и запись
+    fd = open(argv[1], O_RDWR);
+    if (fd == -1) {
+        perror("Unable to open file for reading and writing");
         return 1;
     }
 
-    // Открытие файла на чтение и вывод информации на экран
-    fileDesc = open(filename, O_RDONLY);
-    if (fileDesc == -1) {
-        perror("Ошибка при открытии файла на чтение");
-        return 1;
-    }
+    // Проверка результата системного вызова open
+    printf("Successfully opened file for reading and writing\n");
 
-    char buffer[1024] = {0};
-    while (!feof(fd)) {
-        ssize_t bytesRead = read(fileDesc, buffer, sizeof(buffer));
-        if (bytesRead > 0) {
-            printf("%.*s", (int)bytesRead, buffer);
-        }
-    }
-
-    // Проверка возможности открытия файла на чтение и запись
-    fileDesc = open(filename, O_RDWR);
-    if (fileDesc == -1) {
-        puts("Файл открыт только на чтение.");
-    } else {
-        puts("Доступна запись в файл.");
-    }
+    // Закрытие файла
+    close(fd);
 
     return 0;
 }
