@@ -6,7 +6,7 @@
 
 
 int main() {
-    int fd = open("example.txt", O_RDONLY); // Открываем несуществующий файл для чтения
+    int fd = open("example.txt", O_RDONLY);
 
     if(fd == -1) {
         printf("Ошибка выполнения системного вызова 'open':\n");

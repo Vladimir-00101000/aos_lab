@@ -14,13 +14,11 @@ int main(int argc, char *argv[]) {
     for (int i = 1; i < argc; i++) {
         struct stat file_stat;
 
-        // Получаем информацию о файле
         if (stat(argv[i], &file_stat) == -1) {
             perror("Error getting file information");
-            continue; // Пропускаем файл, если возникла ошибка
+            continue;
         }
 
-        // Проверяем, является ли файл обычным файлом и сравниваем его размер
         if (S_ISREG(file_stat.st_mode)) {
             if (file_stat.st_size > largest_size) {
                 largest_size = file_stat.st_size;

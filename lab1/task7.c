@@ -6,9 +6,9 @@
 
 void print_file_info(const char *filename, struct stat *file_stat) {
     printf("File: %s\n", filename);
-    printf("File size: %lld bytes\n", (long long)file_stat->st_size);  // Используем %lld
-    printf("Block size: %d bytes\n", (int)file_stat->st_blksize);     // Используем %d
-    printf("Number of blocks allocated: %lld\n", (long long)file_stat->st_blocks);  // Используем %lld
+    printf("File size: %lld bytes\n", (long long)file_stat->st_size);
+    printf("Block size: %d bytes\n", (int)file_stat->st_blksize);
+    printf("Number of blocks allocated: %lld\n", (long long)file_stat->st_blocks);
 
     printf("File type: ");
     if (S_ISREG(file_stat->st_mode)) {
@@ -42,13 +42,11 @@ int main(int argc, char *argv[]) {
 
     struct stat file_stat;
 
-    // Получение информации о файле
     if (stat(argv[1], &file_stat) == -1) {
         perror("Error retrieving file information");
         return 1;
     }
 
-    // Печать информации о файле
     print_file_info(argv[1], &file_stat);
 
     return 0;

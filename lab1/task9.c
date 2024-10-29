@@ -1,45 +1,51 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <errno.h>
 
-void copy_file() {
-    char buffer[1024]; // Буфер для хранения данных
-    size_t bytes;
+void copy_file(int src_fd, int dest_fd) {
+    char buffer[1024];
+    ssize_t bytes;
 
-    // Чтение из стандартного ввода и запись в стандартный вывод
-    while ((bytes = fread(buffer, sizeof(char), sizeof(buffer), stdin)) > 0) {
-        fwrite(buffer, sizeof(char), bytes, stdout);
+    while ((bytes = read(src_fd, buffer, sizeof(buffer))) > 0) {
+        if (write(dest_fd, buffer, bytes) != bytes) {
+            perror("Error writing to destination file");
+            exit(1);
+        }
+    }
+
+    if (bytes < 0) {
+        perror("Error reading from source file");
+        exit(1);
     }
 }
 
 int main(int argc, char *argv[]) {
-    FILE *src, *dest;
+    int src_fd, dest_fd;
 
     if (argc == 3) {
-        // Переназначаем стандартный ввод и вывод
-        src = freopen(argv[1], "rb", stdin); // Открываем для чтения
-        if (src == NULL) {
+        src_fd = open(argv[1], O_RDONLY);
+        if (src_fd == -1) {
             perror("Error opening source file");
             return 1;
         }
 
-        dest = freopen(argv[2], "wb", stdout); // Открываем для записи
-        if (dest == NULL) {
+        dest_fd = open(argv[2], O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (dest_fd == -1) {
             perror("Error opening destination file");
-            fclose(src);
+            close(src_fd);
             return 1;
         }
 
-        // Копируем файл
-        copy_file();
+        copy_file(src_fd, dest_fd);
 
-        // Закрываем файлы (freopen уже закрывает их)
-        fclose(src);
-        fclose(dest);
+        close(src_fd);
+        close(dest_fd);
         printf("File copied from %s to %s\n", argv[1], argv[2]);
     } else {
-        // Если аргументы отсутствуют, используем стандартный ввод и вывод
         printf("Copying from standard input to standard output. Press Ctrl+D (EOF) to finish.\n");
-        copy_file();
+        copy_file(STDIN_FILENO, STDOUT_FILENO);
     }
 
     return 0;

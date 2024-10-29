@@ -26,23 +26,19 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    // Позиционирование на начало файла
     lseek(fd, 0, SEEK_SET);
     char buffer[256];
     int bytes_read = read(fd, buffer, sizeof(buffer));
     if (bytes_read > 0) {
-        write(1, buffer, bytes_read);  // Вывод содержимого на экран
+        write(1, buffer, bytes_read);
     }
 
-    // Позиционирование на начало файла и запись
     lseek(fd, 0, SEEK_SET);
-    write(fd, "New line\n", 9); // Запись в начало файла
-
-    // Позиционирование для чтения после записи
+    write(fd, "New line\n", 9);
     lseek(fd, 0, SEEK_SET);
     bytes_read = read(fd, buffer, sizeof(buffer));
     if (bytes_read > 0) {
-        write(1, buffer, bytes_read);  // Вывод обновленного содержимого на экран
+        write(1, buffer, bytes_read);
     }
 
     close(fd);

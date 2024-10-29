@@ -1,45 +1,43 @@
 #include <stdio.h>
 #include <stdlib.h>
+#include <fcntl.h>
+#include <unistd.h>
+#include <errno.h>
 
-void copy_file(FILE *src, FILE *dest) {
-    char buffer[1024]; // Буфер для хранения данных
-    size_t bytes;
+void copy_file(int src_fd, int dest_fd) {
+    char buffer[1024];
+    ssize_t bytes;
 
-    // Чтение из исходного файла и запись в целевой файл
-    while ((bytes = fread(buffer, sizeof(char), sizeof(buffer), src)) > 0) {
-        fwrite(buffer, sizeof(char), bytes, dest);
+    while ((bytes = read(src_fd, buffer, sizeof(buffer))) > 0) {
+        write(dest_fd, buffer, bytes);
     }
 }
 
 int main(int argc, char *argv[]) {
-    FILE *src, *dest;
+    int src_fd, dest_fd;
 
     if (argc == 3) {
-        // Открываем файлы, указанные в аргументах командной строки
-        src = fopen(argv[1], "rb"); // Открываем для чтения в бинарном режиме
-        if (src == NULL) {
+        src_fd = open(argv[1], O_RDONLY);
+        if (src_fd == -1) {
             perror("Error opening source file");
             return 1;
         }
 
-        dest = fopen(argv[2], "wb"); // Открываем для записи в бинарном режиме
-        if (dest == NULL) {
+        dest_fd = open(argv[2], O_WRONLY | O_CREAT | O_TRUNC, 0644);
+        if (dest_fd == -1) {
             perror("Error opening destination file");
-            fclose(src);
+            close(src_fd);
             return 1;
         }
 
-        // Копируем файл
-        copy_file(src, dest);
+        copy_file(src_fd, dest_fd);
 
-        // Закрываем файлы
-        fclose(src);
-        fclose(dest);
+        close(src_fd);
+        close(dest_fd);
         printf("File copied from %s to %s\n", argv[1], argv[2]);
     } else {
-        // Используем стандартный ввод и вывод
         printf("Copying from standard input to standard output. Press Ctrl+D (EOF) to finish.\n");
-        copy_file(stdin, stdout);
+        copy_file(STDIN_FILENO, STDOUT_FILENO);
     }
 
     return 0;

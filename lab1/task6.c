@@ -10,7 +10,6 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    // Создание файла
     int fd = open(argv[1], O_CREAT | O_WRONLY | O_TRUNC, atoi(argv[2]));
     if (fd == -1) {
         perror("Unable to create file");
@@ -18,7 +17,6 @@ int main(int argc, char *argv[]) {
     }
     printf("File created successfully with descriptor: %d\n", fd);
 
-    // Запись данных с разреженностью
     const char *lines[] = {
         "First line\n",
         "Second line\n",
@@ -26,21 +24,17 @@ int main(int argc, char *argv[]) {
     };
 
     for (int i = 0; i < 3; i++) {
-        // Устанавливаем позицию записи с пропусками
-        off_t position = i * 100; // Пропускаем 100 байт между записями
+        off_t position = i * 100;
         lseek(fd, position, SEEK_SET);
 
-        // Записываем строку
         if (write(fd, lines[i], strlen(lines[i])) != strlen(lines[i])) {
             perror("Error writing to file");
         }
     }
 
-    // Закрытие файла
     close(fd);
     printf("File closed after writing.\n");
 
-    // Открытие файла для чтения
     fd = open(argv[1], O_RDONLY);
     if (fd == -1) {
         perror("Unable to open file for reading");
@@ -48,15 +42,13 @@ int main(int argc, char *argv[]) {
     }
     printf("File opened for reading with descriptor: %d\n", fd);
 
-    // Чтение содержимого файла
     char buffer[256];
     int bytes_read;
-    lseek(fd, 0, SEEK_SET); // Устанавливаем курсор на начало
+    lseek(fd, 0, SEEK_SET);
     while ((bytes_read = read(fd, buffer, sizeof(buffer))) > 0) {
-        write(1, buffer, bytes_read);  // Вывод содержимого на экран
+        write(1, buffer, bytes_read);
     }
 
-    // Закрытие файла
     close(fd);
     printf("File closed after reading.\n");
 
