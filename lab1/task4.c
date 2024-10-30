@@ -26,7 +26,6 @@ int main(int argc, char *argv[]) {
         return 1;
     }
 
-    lseek(fd, 0, SEEK_SET);
     char buffer[256];
     int bytes_read = read(fd, buffer, sizeof(buffer));
     if (bytes_read > 0) {

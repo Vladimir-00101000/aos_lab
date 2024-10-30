@@ -1,5 +1,3 @@
-//gcc task2.c -o task2
-//./task2 example.txt 400
 #include <stdio.h>
 #include <stdlib.h> // функции общего назначения
 #include <fcntl.h> // файловые дескрипторы

@@ -27,7 +27,8 @@ int main(int argc, char *argv[]) {
         off_t position = i * 100;
         lseek(fd, position, SEEK_SET);
 
-        if (write(fd, lines[i], strlen(lines[i])) != strlen(lines[i])) {
+        int bytes_writer = write(fd, lines[i], strlen(lines[i]));
+        if (bytes_writer != strlen(lines[i])) {
             perror("Error writing to file");
         }
     }
