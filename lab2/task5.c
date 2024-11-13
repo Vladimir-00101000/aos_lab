@@ -16,6 +16,7 @@ int main() {
         printf("Parent process - PID: %d, Parent PID: %d, Process Group ID: %d\n", getpid(), getppid(), getpgrp());
 
         sleep(5);
+        waitpid(pid, NULL, WNOHANG);
 
     } else {
         sleep(2);
