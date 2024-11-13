@@ -5,12 +5,11 @@
 #include <sys/types.h>
 #include <sys/wait.h>
 
-volatile sig_atomic_t signal_received = 0; // Флаг для отслеживания сигнала
-int max_iterations = 10; // Максимальное значение для внешнего цикла
+volatile sig_atomic_t signal_received = 0;
+int max_iterations = 10;
 
-// Обработчик сигнала SIGALRM
 void sigalrm_handler(int signo) {
-    signal_received = 1; // Устанавливаем флаг при получении SIGALRM
+    signal_received = 1;
     printf("Процесс %d получил сигнал SIGALRM.\n", getpid());
 }
 

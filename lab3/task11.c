@@ -6,10 +6,10 @@
 
 volatile sig_atomic_t signal_received = 0;
 
-// Обработчик сигнала SIGUSR1
+
 void sigusr1_handler(int signo) {
     printf("Обработчик сигнала %d запущен.\n", signo);
-    signal_received = 1; // Устанавливаем флаг, что сигнал обработан
+    signal_received = 1;
 }
 
 int main() {
