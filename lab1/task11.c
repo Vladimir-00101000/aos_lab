@@ -1,37 +1,35 @@
 #include <stdio.h>
-#include <stdlib.h>
-#include <sys/stat.h>
+#include <unistd.h>
+#include <fcntl.h>
 
 int main(int argc, char *argv[]) {
     if (argc < 2) {
-        fprintf(stderr, "Usage: %s <file1> <file2> ... <fileN>\n", argv[0]);
+        printf("Использование: %s file1 file2 ...\n", argv[0]);
         return 1;
     }
 
-    const char *largest_file = NULL;
-    off_t largest_size = 0;
+    int max_length = 0;
+    char *max_file = NULL;
 
     for (int i = 1; i < argc; i++) {
-        struct stat file_stat;
-
-        if (stat(argv[i], &file_stat) == -1) {
-            perror("Error getting file information");
+        int fd = open(argv[i], O_RDONLY);
+        if (fd < 0) {
+            printf("Не удалось открыть файл %s\n", argv[i]);
             continue;
         }
 
-        if (S_ISREG(file_stat.st_mode)) {
-            if (file_stat.st_size > largest_size) {
-                largest_size = file_stat.st_size;
-                largest_file = argv[i];
-            }
+        int length = lseek(fd, 0, SEEK_END);
+        close(fd);
+
+        if (length > max_length) {
+            max_length = length;
+            max_file = argv[i];
         }
     }
 
-    if (largest_file) {
-        printf("The largest file is: %s\n", largest_file);
-        printf("Size: %lld bytes\n", (long long)largest_size);
-    } else {
-        printf("No regular files found.\n");
+    if (max_file) {
+        printf("Самый длинный файл: %s\n", max_file);
+        printf("Размер: %d байт\n", max_length);
     }
 
     return 0;
