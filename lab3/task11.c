@@ -1,51 +1,41 @@
 #include <stdio.h>
-#include <stdlib.h>
 #include <signal.h>
 #include <unistd.h>
-#include <string.h>
+#include <stdlib.h>
 
-volatile sig_atomic_t signal_received = 0;
+volatile sig_atomic_t got_signal = 0;
 
-
-void sigusr1_handler(int signo) {
-    printf("Обработчик сигнала %d запущен.\n", signo);
-    signal_received = 1;
+void handler(int signo) {
+    got_signal = 1;
 }
 
 int main() {
-    struct sigaction sa;
-    sigset_t mask;
+    pid_t pid;
+    sigset_t mask, oldmask;
 
-    memset(&sa, 0, sizeof(sa));
-    sa.sa_handler = sigusr1_handler;
+    struct sigaction sa = {0};
+    sa.sa_handler = handler;
     sigaction(SIGUSR1, &sa, NULL);
 
     sigemptyset(&mask);
     sigaddset(&mask, SIGUSR1);
-    sigprocmask(SIG_BLOCK, &mask, NULL);
+    sigprocmask(SIG_BLOCK, &mask, &oldmask);
 
-    pid_t pid = fork();
-
-    if (pid == -1) {
-        perror("fork");
-        exit(EXIT_FAILURE);
-    }
+    pid = fork();
 
     if (pid == 0) {
+        printf("Потомок начал работу (PID: %d)\n", getpid());
         sleep(2);
-        printf("Дочерний процесс %d отправляет сигнал SIGUSR1.\n", getpid());
+        printf("Потомок отправляет сигнал родителю\n");
         kill(getppid(), SIGUSR1);
         exit(0);
+    } else {
+        printf("Родитель ждет сигнал (PID: %d)\n", getpid());
+        while (!got_signal) {
+            sigsuspend(&oldmask);
+        }
+        printf("Родитель получил сигнал и завершается\n");
     }
-
-    printf("Родительский процесс %d ожидает сигнал...\n", getpid());
-
-    sigsuspend(&mask);
-
-    printf("Родительский процесс %d получил сигнал SIGUSR1.\n", getpid());
-
-    int status;
-    wait(&status);
 
     return 0;
 }

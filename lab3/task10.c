@@ -1,40 +1,37 @@
 #include <stdio.h>
-#include <stdlib.h>
 #include <signal.h>
 #include <unistd.h>
-#include <string.h>
 
-volatile sig_atomic_t signal_received = 0;
+volatile sig_atomic_t count = 0;
 
-void sigusr1_handler(int signo) {
-    printf("Обработчик сигнала %d запущен.\n", signo);
-    sigset_t mask;
-    sigfillset(&mask);
-    sigprocmask(SIG_BLOCK, &mask, NULL);
+void signal_handler(int signo) {
+    count++;
+    printf("\nНачало обработки сигнала %d (всего: %d)\n", signo, count);
 
     sleep(3);
 
-    sigprocmask(SIG_UNBLOCK, &mask, NULL);
-    signal_received = 1;
-    printf("Обработчик сигнала %d завершён.\n", signo);
+    printf("Конец обработки сигнала\n");
 }
 
 int main() {
-    struct sigaction sa;
-    memset(&sa, 0, sizeof(sa));
-    sa.sa_handler = sigusr1_handler;
-    sigaction(SIGUSR1, &sa, NULL);
+    struct sigaction sa = {0};
+    sa.sa_handler = signal_handler;
 
-    for (int i = 0; i < 5; i++) {
-        kill(getpid(), SIGUSR1);
+    sigemptyset(&sa.sa_mask);
+    sigaddset(&sa.sa_mask, SIGUSR1);
+
+    if (sigaction(SIGUSR1, &sa, NULL) == -1) {
+        perror("sigaction");
+        return 1;
+    }
+
+    printf("PID: %d\n", getpid());
+    printf("Для тестирования используйте команду: kill -SIGUSR1 %d\n", getpid());
+
+    while(1) {
+        printf("Ожидание сигнала...\n");
         sleep(1);
     }
 
-    while (!signal_received) {
-        printf("Ожидание обработки сигнала...\n");
-        sleep(1);
-    }
-
-    printf("Программа завершена.\n");
     return 0;
 }
