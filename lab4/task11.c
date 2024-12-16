@@ -2,67 +2,99 @@
 #include <stdlib.h>
 #include <unistd.h>
 #include <string.h>
-#include <sys/file.h>
+#include <sys/types.h>
 #include <sys/wait.h>
-#include <errno.h>
 #include <fcntl.h>
 
 #define BUFFER_SIZE 256
 
-void process_work(const char* process_name, int fd) {
-    char buffer[BUFFER_SIZE];
+int set_lock(int fd, int type) {
+    struct flock lock;
 
-    while (1) {
-        if (flock(fd, LOCK_EX | LOCK_NB) == 0) {
-            printf("%s (PID: %d): Получил доступ к терминалу\n",
-                   process_name, getpid());
+    lock.l_type = type;
+    lock.l_start = 0;
+    lock.l_whence = SEEK_SET;
+    lock.l_len = 0;
 
-            printf("%s: Введите строку (или 'q' для выхода): ", process_name);
-            fflush(stdout);
-
-            if (fgets(buffer, BUFFER_SIZE, stdin) != NULL) {
-                if (buffer[0] == 'q' && buffer[1] == '\n') {
-                    flock(fd, LOCK_UN);
-                    break;
-                }
-                printf("%s прочитал: %s", process_name, buffer);
-            }
-
-            flock(fd, LOCK_UN);
-            printf("%s: Освободил терминал\n", process_name);
-        } else if (errno == EWOULDBLOCK) {
-            printf("%s: Ждёт освобождения терминала...\n", process_name);
-        }
-
-        sleep(2);
-    }
+    return fcntl(fd, F_SETLK, &lock);
 }
 
 int main() {
     pid_t pid;
-    int terminal_fd;
-
-    terminal_fd = open("/dev/tty", O_RDWR);
-    if (terminal_fd == -1) {
-        perror("Ошибка открытия терминала");
-        exit(1);
-    }
+    char buffer[BUFFER_SIZE];
+    int stdin_fd = fileno(stdin);
+    int stdout_fd = fileno(stdout);
 
     pid = fork();
 
     if (pid < 0) {
-        perror("Ошибка при создании процесса");
-        close(terminal_fd);
+        fprintf(stderr, "Ошибка при создании процесса\n");
         exit(1);
     }
 
     if (pid == 0) {
-        process_work("Дочерний", terminal_fd);
+        while (1) {
+            if (set_lock(stdin_fd, F_WRLCK) == -1) {
+                sleep(1);
+                continue;
+            }
+
+            if (set_lock(stdout_fd, F_WRLCK) == -1) {
+                set_lock(stdin_fd, F_UNLCK);
+                sleep(1);
+                continue;
+            }
+
+            printf("Процесс-потомок (PID: %d) ожидает ввод: ", getpid());
+            fflush(stdout);
+
+            if (fgets(buffer, BUFFER_SIZE, stdin) == NULL) {
+                set_lock(stdout_fd, F_UNLCK);
+                set_lock(stdin_fd, F_UNLCK);
+                break;
+            }
+
+            printf("Процесс-потомок получил: %s", buffer);
+            fflush(stdout);
+
+            set_lock(stdout_fd, F_UNLCK);
+            set_lock(stdin_fd, F_UNLCK);
+
+            sleep(1);
+        }
     } else {
-        process_work("Родительский", terminal_fd);
+        while (1) {
+            if (set_lock(stdin_fd, F_WRLCK) == -1) {
+                sleep(1);
+                continue;
+            }
+
+            if (set_lock(stdout_fd, F_WRLCK) == -1) {
+                set_lock(stdin_fd, F_UNLCK);
+                sleep(1);
+                continue;
+            }
+
+            printf("Родительский процесс (PID: %d) ожидает ввод: ", getpid());
+            fflush(stdout);
+
+            if (fgets(buffer, BUFFER_SIZE, stdin) == NULL) {
+                set_lock(stdout_fd, F_UNLCK);
+                set_lock(stdin_fd, F_UNLCK);
+                break;
+            }
+
+            printf("Родительский процесс получил: %s", buffer);
+            fflush(stdout);
+
+            set_lock(stdout_fd, F_UNLCK);
+            set_lock(stdin_fd, F_UNLCK);
+
+            sleep(1);
+        }
+
         wait(NULL);
     }
 
-    close(terminal_fd);
     return 0;
 }

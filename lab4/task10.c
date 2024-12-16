@@ -20,18 +20,18 @@ int main() {
     if (pid == 0) {
         printf("Дочерний процесс (PID: %d): Готов читать ввод\n", getpid());
         while (1) {
-            printf("Дочерний: Введите строку: ");
+            printf("Дочерний: Введите строку: \n");
             if (fgets(buffer, BUFFER_SIZE, stdin) != NULL) {
-                printf("Дочерний прочитал: %s", buffer);
+                printf("Дочерний прочитал: %s\n", buffer);
             }
             sleep(1);
         }
     } else {
         printf("Родительский процесс (PID: %d): Готов читать ввод\n", getpid());
         while (1) {
-            printf("Родительский: Введите строку: ");
+            printf("Родительский: Введите строку: \n");
             if (fgets(buffer, BUFFER_SIZE, stdin) != NULL) {
-                printf("Родительский прочитал: %s", buffer);
+                printf("Родительский прочитал: %s\n", buffer);
             }
             sleep(1);
         }
