@@ -4,10 +4,13 @@
 #include <sys/msg.h>
 #include <sys/wait.h>
 #include <signal.h>
+#include <string.h>
+
+#define MSG_SIZE 100
 
 struct message {
     long type;
-    char dummy;
+    char text[MSG_SIZE];
 };
 
 static int queue_id;
@@ -20,32 +23,42 @@ void cleanup(int sig) {
 int main() {
     queue_id = msgget(IPC_PRIVATE, 0600);
     if (queue_id == -1) {
-        perror("Ошиибка получения id очереди");
+        perror("Ошибка получения id очереди");
         exit(1);
     }
 
     signal(SIGINT, cleanup);
 
-    struct message msg = {0};
+    struct message msg;
     pid_t pid = fork();
 
     if (pid > 0) {
+        int counter = 1;
         while (1) {
-            printf("Родитель %d отправляет\n", getpid());
             msg.type = 1;
-            msgsnd(queue_id, &msg, sizeof(msg.dummy), 0);
+            sprintf(msg.text, "Сообщение №%d от родителя", counter);
+            printf("Родитель отправляет: %s\n", msg.text);
+            msgsnd(queue_id, &msg, sizeof(msg.text), 0);
 
-            msgrcv(queue_id, &msg, sizeof(msg.dummy), 2, 0);
+            msgrcv(queue_id, &msg, sizeof(msg.text), 2, 0);
+            printf("Родитель получает: %s\n", msg.text);
+
+            counter++;
             sleep(1);
         }
     }
     else if (pid == 0) {
+        int counter = 1;
         while (1) {
-            msgrcv(queue_id, &msg, sizeof(msg.dummy), 1, 0);
-            printf("Ребенок %d отвечает\n", getpid());
+            msgrcv(queue_id, &msg, sizeof(msg.text), 1, 0);
+            printf("Ребенок получает: %s\n", msg.text);
 
             msg.type = 2;
-            msgsnd(queue_id, &msg, sizeof(msg.dummy), 0);
+            sprintf(msg.text, "Сообщение №%d от ребенка", counter);
+            printf("Ребенок отправляет: %s\n", msg.text);
+            msgsnd(queue_id, &msg, sizeof(msg.text), 0);
+
+            counter++;
             sleep(1);
         }
     }
