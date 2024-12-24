@@ -1,132 +1,90 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
-#include <unistd.h>
-#include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/msg.h>
-#include <signal.h>
 
-#define SERVER_KEY 12345
-#define MAX_TEXT 512
+#define MSG_LEN 128
+#define PROJECT_ID 123
 #define MAX_CLIENTS 10
-#define MSG_TYPE_ALL 1
 
-struct client_info {
-    int queue_id;
-    int type;
-    int active;
-};
-
-struct request_msg {
-    long mtype;
-    int client_queue_id;
-    int recipient_type;
-    int sender_type;
-    char text[MAX_TEXT];
-};
-
-struct response_msg {
-    long mtype;
-    char text[MAX_TEXT];
-};
-
-int server_qid;
-struct client_info clients[MAX_CLIENTS];
-int client_count = 0;
-
-void cleanup(int signum) {
-    printf("\nПолучен сигнал прерывания. Удаление очереди сообщений...\n");
-    if (msgctl(server_qid, IPC_RMID, NULL) == -1) {
-        perror("msgctl");
-    }
-    exit(0);
-}
-
-int create_queue(key_t key) {
-    int qid = msgget(key, IPC_CREAT | 0666);
-    if (qid == -1) {
-        perror("msgget");
-        exit(1);
-    }
-    return qid;
-}
-
-void register_client(int queue_id, int type) {
-    for (int i = 0; i < MAX_CLIENTS; i++) {
-        if (!clients[i].active) {
-            clients[i].queue_id = queue_id;
-            clients[i].type = type;
-            clients[i].active = 1;
-            client_count++;
-            printf("Зарегистрирован новый клиент: очередь %d, тип %d\n", queue_id, type);
-            return;
-        }
-    }
-}
-
-void remove_client(int queue_id) {
-    for (int i = 0; i < MAX_CLIENTS; i++) {
-        if (clients[i].active && clients[i].queue_id == queue_id) {
-            clients[i].active = 0;
-            client_count--;
-            printf("Клиент удален: очередь %d\n", queue_id);
-            return;
-        }
-    }
-}
+typedef struct {
+    long type;
+    int sender_id;
+    int receiver_id;
+    char data[MSG_LEN];
+} Message;
 
 int main() {
-    struct request_msg request;
-    struct response_msg response;
-
-    signal(SIGINT, cleanup);
-
-    for (int i = 0; i < MAX_CLIENTS; i++) {
-        clients[i].active = 0;
+    key_t server_key = ftok(".", PROJECT_ID);
+    if (server_key == -1) {
+        perror("Ошибка создания ключа");
+        return 1;
     }
 
-    server_qid = create_queue(SERVER_KEY);
-    printf("Сервер запущен. ID очереди: %d\n", server_qid);
+    int server_queue = msgget(server_key, IPC_CREAT | 0666);
+    if (server_queue == -1) {
+        perror("Ошибка создания очереди");
+        return 1;
+    }
 
-    while (1) {
-        if (msgrcv(server_qid, &request, sizeof(request) - sizeof(long), 0, 0) == -1) {
-            perror("msgrcv");
-            exit(1);
+    printf("Сервер запущен. ID очереди: %d\n", server_queue);
+
+    Message request, response;
+    int active_clients[MAX_CLIENTS] = {0};
+    int client_count = 0;
+
+    while(1) {
+        if (msgrcv(server_queue, &request, sizeof(Message) - sizeof(long), 0, 0) == -1) {
+            perror("Ошибка получения запроса");
+            break;
         }
 
-        if (strcmp(request.text, "register") == 0) {
-            register_client(request.client_queue_id, request.sender_type);
-            continue;
+        int client_found = 0;
+        for (int i = 0; i < client_count; i++) {
+            if (active_clients[i] == request.sender_id) {
+                client_found = 1;
+                break;
+            }
         }
 
-        if (strcmp(request.text, "exit") == 0) {
-            remove_client(request.client_queue_id);
-            continue;
+        if (!client_found && client_count < MAX_CLIENTS) {
+            active_clients[client_count++] = request.sender_id;
+            printf("Новый клиент подключился: %d\n", request.sender_id);
         }
 
-        printf("\nПолучено сообщение от клиента %d (тип %d): %s\n",
-               request.client_queue_id, request.sender_type, request.text);
+        printf("\nПолучено сообщение типа %ld от клиента %d: %s\n", request.type, request.sender_id, request.data);
 
-        sprintf(response.text, "[От пользователя типа %d]: %s",
-                request.sender_type, request.text);
+        response.type = request.type;
+        response.sender_id = request.sender_id;
+        strncpy(response.data, request.data, MSG_LEN - 1);
+        response.data[MSG_LEN - 1] = '\0';
 
-        for (int i = 0; i < MAX_CLIENTS; i++) {
-            if (clients[i].active) {
-                if (request.recipient_type == 0 || request.recipient_type == clients[i].type) {
-                    response.mtype = clients[i].type;
-                    if (msgsnd(clients[i].queue_id, &response, sizeof(response) - sizeof(long), 0) == -1) {
-                        perror("msgsnd");
-                        remove_client(clients[i].queue_id);
-                    } else {
-                        printf("Сообщение отправлено клиенту: очередь %d, тип %d\n",
-                               clients[i].queue_id, clients[i].type);
+        if (request.receiver_id == 0) {
+            for (int i = 0; i < client_count; i++) {
+                if (active_clients[i] != request.sender_id) {
+                    response.receiver_id = active_clients[i];
+                    if (msgsnd(active_clients[i], &response, sizeof(Message) - sizeof(long), 0) == -1) {
+                        perror("Ошибка отправки ответа");
+                        for (int j = i; j < client_count - 1; j++) {
+                            active_clients[j] = active_clients[j + 1];
+                        }
+                        client_count--;
+                        i--;
                     }
                 }
             }
+        } else {
+            response.receiver_id = request.receiver_id;
+            if (msgsnd(request.receiver_id, &response, sizeof(Message) - sizeof(long), 0) == -1) {
+                perror("Ошибка отправки ответа");
+            }
         }
+
+        printf("Сообщение обработано и отправлено\n");
     }
 
+    msgctl(server_queue, IPC_RMID, NULL);
+    printf("Сервер завершил работу\n");
     return 0;
 }

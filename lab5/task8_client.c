@@ -1,116 +1,85 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
-#include <unistd.h>
-#include <sys/types.h>
+#include <signal.h>
 #include <sys/ipc.h>
 #include <sys/msg.h>
-#include <signal.h>
 
-#define SERVER_KEY 12345
-#define MAX_TEXT 512
+#define MSG_LEN 32
+#define PROJECT_ID 123
 
-struct request_msg {
-    long mtype;
-    int client_queue_id;
-    char text[MAX_TEXT];
-};
+typedef struct {
+    long type;
+    char data[MSG_LEN];
+} Message;
 
-struct response_msg {
-    long mtype;
-    char text[MAX_TEXT];
-};
+volatile sig_atomic_t running = 1;
+int client_queue;
 
-int client_qid = -1;
-
-void client_signal_handler(int signo) {
-    if (signo == SIGINT) {
-        printf("\nПолучен сигнал SIGINT. Завершение работы клиента...\n");
-
-        if (client_qid != -1) {
-            if (msgctl(client_qid, IPC_RMID, NULL) == -1) {
-                perror("msgctl");
-            }
-        }
-
-        exit(0);
-    }
-}
-
-int create_queue(key_t key) {
-    int qid = msgget(key, IPC_CREAT | 0666);
-    if (qid == -1) {
-        perror("msgget");
-        exit(1);
-    }
-    return qid;
+void handle_sigint(int sig) {
+    running = 0;
 }
 
 int main() {
-    int server_qid;
-    struct request_msg request;
-    struct response_msg response;
-    char buffer[MAX_TEXT];
+    signal(SIGINT, handle_sigint);
 
-    struct sigaction sa;
-    sa.sa_handler = client_signal_handler;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0;
-
-    if (sigaction(SIGINT, &sa, NULL) == -1) {
-        perror("sigaction");
-        exit(1);
+    key_t server_key = ftok(".", PROJECT_ID);
+    if (server_key == -1) {
+        perror("Ошибка создания ключа сервера");
+        return 1;
     }
 
-    server_qid = msgget(SERVER_KEY, 0);
-    if (server_qid == -1) {
-        printf("Сервер не запущен\n");
-        exit(1);
+    int server_queue = msgget(server_key, 0666);
+    if (server_queue == -1) {
+        perror("Ошибка получения очереди сервера");
+        return 1;
     }
 
-    client_qid = create_queue(IPC_PRIVATE);
-    printf("Клиент запущен. ID очереди: %d\n", client_qid);
+    client_queue = msgget(IPC_PRIVATE, IPC_CREAT | 0666);
+    if (client_queue == -1) {
+        perror("Ошибка создания очереди клиента");
+        return 1;
+    }
 
-    request.mtype = 1;
-    request.client_queue_id = client_qid;
+    printf("ID очереди клиента: %d\n", client_queue);
 
-    while (1) {
+    Message request, response;
+    char input[MSG_LEN];
+
+    while(running) {
         printf("\nВведите сообщение (или 'exit' для выхода): ");
-        if (fgets(buffer, MAX_TEXT, stdin) == NULL) {
-            if (errno == EINTR) {
-                continue;
+        if (fgets(input, sizeof(input), stdin) == NULL) {
+            break;
+        }
+
+        input[strcspn(input, "\n")] = 0;
+
+        if (strcmp(input, "exit") == 0 || !running) {
+            break;
+        }
+
+        request.type = client_queue;
+        strncpy(request.data, input, MSG_LEN - 1);
+        request.data[MSG_LEN - 1] = '\0';
+
+        if (msgsnd(server_queue, &request, sizeof(request.data), 0) == -1) {
+            perror("Ошибка отправки запроса");
+            break;
+        }
+
+        printf("Отправлен запрос: %s\n", request.data);
+
+        if (msgrcv(client_queue, &response, sizeof(response.data), 0, 0) == -1) {
+            if (running) {
+                perror("Ошибка получения ответа");
             }
             break;
         }
 
-        buffer[strcspn(buffer, "\n")] = '\0';
-        strncpy(request.text, buffer, MAX_TEXT);
-
-        if (msgsnd(server_qid, &request, sizeof(request) - sizeof(long), 0) == -1) {
-            perror("msgsnd");
-            break;
-        }
-
-        if (msgrcv(client_qid, &response, sizeof(response) - sizeof(long), 0, 0) == -1) {
-            if (errno == EINTR) {
-                continue;
-            }
-            perror("msgrcv");
-            break;
-        }
-
-        printf("Ответ от сервера: %s\n", response.text);
-
-        if (strcmp(buffer, "exit") == 0) {
-            break;
-        }
+        printf("Получен ответ: %s\n", response.data);
     }
 
-    if (msgctl(client_qid, IPC_RMID, NULL) == -1) {
-        perror("msgctl");
-    }
-
+    msgctl(client_queue, IPC_RMID, NULL);
     printf("Клиент завершил работу\n");
     return 0;
 }

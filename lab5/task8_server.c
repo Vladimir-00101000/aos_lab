@@ -1,98 +1,75 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
-#include <unistd.h>
-#include <sys/types.h>
+#include <signal.h>
 #include <sys/ipc.h>
 #include <sys/msg.h>
-#include <signal.h>
 
-#define SERVER_KEY 12345
-#define MAX_TEXT 512
+#define MSG_LEN 32
+#define PROJECT_ID 123
 
-struct request_msg {
-    long mtype;
-    int client_queue_id;
-    char text[MAX_TEXT];
-};
+typedef struct {
+    long type;
+    char data[MSG_LEN];
+} Message;
 
-struct response_msg {
-    long mtype;
-    char text[MAX_TEXT];
-};
+volatile sig_atomic_t running = 1;
+int server_queue;
 
-int server_qid = -1;
+void handle_sigint(int sig) {
+    running = 0;
+}
 
-void server_signal_handler(int signo) {
-    if (signo == SIGINT) {
-        printf("\nПолучен сигнал SIGINT. Завершение работы сервера...\n");
-
-        if (server_qid != -1) {
-            if (msgctl(server_qid, IPC_RMID, NULL) == -1) {
-                perror("msgctl");
-            }
-        }
-
-        exit(0);
+void process_message(char *message) {
+    for (int i = 0; message[i]; i++) {
+        message[i]--;
     }
 }
 
-int create_queue(key_t key) {
-    int qid = msgget(key, IPC_CREAT | 0666);
-    if (qid == -1) {
-        perror("msgget");
-        exit(1);
-    }
-    return qid;
-}
+int main(int argc, char *argv[]) {
+    signal(SIGINT, handle_sigint);
 
-int main() {
-    struct request_msg request;
-    struct response_msg response;
-
-    struct sigaction sa;
-    sa.sa_handler = server_signal_handler;
-    sigemptyset(&sa.sa_mask);
-    sa.sa_flags = 0;
-
-    if (sigaction(SIGINT, &sa, NULL) == -1) {
-        perror("sigaction");
-        exit(1);
+    key_t server_key = ftok(".", PROJECT_ID);
+    if (server_key == -1) {
+        perror("Ошибка создания ключа");
+        return 1;
     }
 
-    server_qid = create_queue(SERVER_KEY);
-    printf("Сервер запущен. ID очереди: %d\n", server_qid);
+    server_queue = msgget(server_key, IPC_CREAT | 0666);
+    if (server_queue == -1) {
+        perror("Ошибка создания очереди");
+        return 1;
+    }
 
-    while (1) {
-        if (msgrcv(server_qid, &request, sizeof(request) - sizeof(long), 0, 0) == -1) {
-            if (errno == EINTR) {
-                continue;
+    printf("Сервер запущен. ID очереди: %d\n", server_queue);
+
+    Message request, response;
+
+    while(running) {
+        if (msgrcv(server_queue, &request, sizeof(request.data), 0, 0) == -1) {
+            if (running) {
+                perror("Ошибка получения запроса");
             }
-            perror("msgrcv");
             break;
         }
 
-        printf("\nПолучен запрос от клиента (очередь: %d): %s\n",
-               request.client_queue_id, request.text);
+        printf("\nПолучен запрос от клиента %ld: %s\n", request.type, request.data);
 
-        response.mtype = 1;
-        sprintf(response.text, "Сервер получил сообщение: %s", request.text);
+        response.type = 1;
+        strncpy(response.data, request.data, MSG_LEN - 1);
+        response.data[MSG_LEN - 1] = '\0';
 
-        if (msgsnd(request.client_queue_id, &response, sizeof(response) - sizeof(long), 0) == -1) {
-            perror("msgsnd");
+        process_message(response.data);
+
+        if (msgsnd(request.type, &response, sizeof(response.data), 0) == -1) {
+            perror("Ошибка отправки ответа");
             break;
         }
 
-        if (strcmp(request.text, "exit") == 0) {
-            break;
-        }
+        printf("Отправлен ответ: %s\n", response.data);
     }
 
-    if (msgctl(server_qid, IPC_RMID, NULL) == -1) {
-        perror("msgctl");
-    }
-
+    msgctl(server_queue, IPC_RMID, NULL);
     printf("Сервер завершил работу\n");
     return 0;
 }

@@ -1,119 +1,91 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
-#include <unistd.h>
-#include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/msg.h>
-#include <signal.h>
 
-#define SERVER_KEY 12345
-#define MAX_TEXT 512
-#define MSG_TYPE_ALL 1
+#define MSG_LEN 128
+#define PROJECT_ID 123
 
-struct request_msg {
-    long mtype;
-    int client_queue_id;
-    int recipient_type;
-    int sender_type;
-    char text[MAX_TEXT];
-};
-
-struct response_msg {
-    long mtype;
-    char text[MAX_TEXT];
-};
-
-int create_queue(key_t key) {
-    int qid = msgget(key, IPC_CREAT | 0666);
-    if (qid == -1) {
-        perror("msgget");
-        exit(1);
-    }
-    return qid;
-}
+typedef struct {
+    long type;
+    int sender_id;
+    int receiver_id;
+    char data[MSG_LEN];
+} Message;
 
 int main() {
-    int server_qid, client_qid;
-    struct request_msg request;
-    struct response_msg response;
-    char buffer[MAX_TEXT];
-    int user_type;
-
-    server_qid = msgget(SERVER_KEY, 0);
-    if (server_qid == -1) {
-        printf("Сервер не запущен\n");
-        exit(1);
+    key_t server_key = ftok(".", PROJECT_ID);
+    if (server_key == -1) {
+        perror("Ошибка создания ключа сервера");
+        return 1;
     }
 
-    client_qid = create_queue(IPC_PRIVATE);
-
-    printf("Введите ваш тип пользователя (1-5): ");
-    scanf("%d", &user_type);
-    getchar();
-
-    printf("Клиент запущен. ID очереди: %d, тип: %d\n", client_qid, user_type);
-
-    request.mtype = 1;
-    request.client_queue_id = client_qid;
-    request.sender_type = user_type;
-    strcpy(request.text, "register");
-
-    if (msgsnd(server_qid, &request, sizeof(request) - sizeof(long), 0) == -1) {
-        perror("msgsnd");
-        exit(1);
+    int server_queue = msgget(server_key, 0666);
+    if (server_queue == -1) {
+        perror("Ошибка получения очереди сервера");
+        return 1;
     }
 
-    pid_t pid = fork();
+    int client_queue = msgget(IPC_PRIVATE, IPC_CREAT | 0666);
+    if (client_queue == -1) {
+        perror("Ошибка создания очереди клиента");
+        return 1;
+    }
 
-    if (pid < 0) {
-        perror("fork");
-        exit(1);
-    } else if (pid == 0) {
-        while (1) {
-            if (msgrcv(client_qid, &response, sizeof(response) - sizeof(long), user_type, 0) != -1) {
-                printf("\n%s\n", response.text);
-                printf("Кому отправить (0 - всем, 1-5 - конкретному типу): ");
-                fflush(stdout);
-            }
-        }
-    } else {
-        while (1) {
-            printf("Кому отправить (0 - всем, 1-5 - конкретному типу): ");
-            scanf("%d", &request.recipient_type);
-            getchar();
+    printf("Ваш ID: %d\n", client_queue);
+    printf("Доступные типы сообщений:\n");
+    printf("1 - Публичное сообщение\n");
+    printf("2 - Личное сообщение\n");
+    printf("3 - Важное уведомление\n");
 
-            printf("Введите сообщение (или 'exit' для выхода): ");
-            fgets(buffer, MAX_TEXT, stdin);
-            buffer[strcspn(buffer, "\n")] = '\0';
+    Message request, response;
+    char input[MSG_LEN];
+    int msg_type, receiver_id;
 
-            request.mtype = 1;
-            request.sender_type = user_type;
-            strncpy(request.text, buffer, MAX_TEXT);
+    while(1) {
+        printf("\nВыберите тип сообщения (1-3): ");
+        scanf("%d", &msg_type);
+        getchar(); // Очистка буфера
 
-            if (msgsnd(server_qid, &request, sizeof(request) - sizeof(long), 0) == -1) {
-                perror("msgsnd");
-                break;
-            }
+        printf("Введите ID получателя (0 для всех): ");
+        scanf("%d", &receiver_id);
+        getchar(); // Очистка буфера
 
-            if (strcmp(buffer, "exit") == 0) {
-                break;
-            }
+        printf("Введите сообщение (или 'exit' для выхода): ");
+        if (fgets(input, sizeof(input), stdin) == NULL) {
+            break;
         }
 
-        kill(pid, SIGTERM);
+        input[strcspn(input, "\n")] = 0;
+
+        if (strcmp(input, "exit") == 0) {
+            break;
+        }
+
+        request.type = msg_type;
+        request.sender_id = client_queue;
+        request.receiver_id = receiver_id;
+        strncpy(request.data, input, MSG_LEN - 1);
+        request.data[MSG_LEN - 1] = '\0';
+
+        if (msgsnd(server_queue, &request, sizeof(Message) - sizeof(long), 0) == -1) {
+            perror("Ошибка отправки запроса");
+            break;
+        }
+
+        printf("Отправлено сообщение типа %d: %s\n", msg_type, request.data);
+
+        if (msgrcv(client_queue, &response, sizeof(Message) - sizeof(long), 0, 0) == -1) {
+            perror("Ошибка получения ответа");
+            break;
+        }
+
+        printf("Получено сообщение типа %ld от %d: %s\n",
+               response.type, response.sender_id, response.data);
     }
 
-    request.mtype = 1;
-    strcpy(request.text, "exit");
-    msgsnd(server_qid, &request, sizeof(request) - sizeof(long), 0);
-
-    if (msgctl(client_qid, IPC_RMID, NULL) == -1) {
-        perror("msgctl");
-        exit(1);
-    }
-
+    msgctl(client_queue, IPC_RMID, NULL);
     printf("Клиент завершил работу\n");
     return 0;
 }

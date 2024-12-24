@@ -1,69 +1,80 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
-#include <unistd.h>
-#include <sys/types.h>
 #include <sys/ipc.h>
+#include <time.h>
 #include <sys/msg.h>
 
-#define REQUEST_QUEUE_KEY 12345
-#define RESPONSE_QUEUE_KEY 12346
-#define MAX_TEXT 512
+#define MSG_LEN 32
+#define PROJECT_ID_REQ 123
+#define PROJECT_ID_RESP 124
 
-struct request_msg {
-    long mtype;
-    pid_t client_pid;
-    char text[MAX_TEXT];
-};
-
-struct response_msg {
-    long mtype;
-    char text[MAX_TEXT];
-};
+typedef struct {
+    long type;
+    char data[MSG_LEN];
+} Message;
 
 int main() {
-    int request_qid, response_qid;
-    struct request_msg request;
-    struct response_msg response;
-    char buffer[MAX_TEXT];
-    pid_t my_pid = getpid();
 
-    request_qid = msgget(REQUEST_QUEUE_KEY, 0);
-    response_qid = msgget(RESPONSE_QUEUE_KEY, 0);
-
-    if (request_qid == -1 || response_qid == -1) {
-        printf("Сервер не запущен\n");
-        exit(1);
+    key_t request_key = ftok(".", PROJECT_ID_REQ);
+    if (request_key == -1) {
+        perror("Ошибка создания ключа очереди запросов");
+        return 1;
     }
 
-    printf("Клиент запущен. PID: %d\n", my_pid);
+    int request_queue = msgget(request_key, 0666);
+    if (request_queue == -1) {
+        perror("Ошибка получения очереди запросов");
+        return 1;
+    }
 
-    request.mtype = 1;
-    request.client_pid = my_pid;
+    key_t response_key = ftok(".", PROJECT_ID_RESP);
+    if (response_key == -1) {
+        perror("Ошибка создания ключа очереди ответов");
+        return 1;
+    }
 
-    while (1) {
+    int response_queue = msgget(response_key, 0666);
+    if (response_queue == -1) {
+        perror("Ошибка получения очереди ответов");
+        return 1;
+    }
+
+    int client_id = (int)time(NULL) % 1000 + 1;
+    printf("ID клиента: %d\n", client_id);
+
+    Message request, response;
+    char input[MSG_LEN];
+
+    while(1) {
         printf("\nВведите сообщение (или 'exit' для выхода): ");
-        fgets(buffer, MAX_TEXT, stdin);
-        buffer[strcspn(buffer, "\n")] = '\0';
-
-        strncpy(request.text, buffer, MAX_TEXT);
-
-        if (msgsnd(request_qid, &request, sizeof(request) - sizeof(long), 0) == -1) {
-            perror("msgsnd");
-            exit(1);
-        }
-
-        if (msgrcv(response_qid, &response, sizeof(response) - sizeof(long), my_pid, 0) == -1) {
-            perror("msgrcv");
-            exit(1);
-        }
-
-        printf("Ответ от сервера: %s\n", response.text);
-
-        if (strcmp(buffer, "exit") == 0) {
+        if (fgets(input, sizeof(input), stdin) == NULL) {
             break;
         }
+
+        input[strcspn(input, "\n")] = 0;
+
+        if (strcmp(input, "exit") == 0) {
+            break;
+        }
+
+        request.type = client_id;
+        strncpy(request.data, input, MSG_LEN - 1);
+        request.data[MSG_LEN - 1] = '\0';
+
+        if (msgsnd(request_queue, &request, sizeof(request.data), 0) == -1) {
+            perror("Ошибка отправки запроса");
+            break;
+        }
+
+        printf("Отправлен запрос: %s\n", request.data);
+
+        if (msgrcv(response_queue, &response, sizeof(response.data), client_id, 0) == -1) {
+            perror("Ошибка получения ответа");
+            break;
+        }
+
+        printf("Получен ответ: %s\n", response.data);
     }
 
     printf("Клиент завершил работу\n");

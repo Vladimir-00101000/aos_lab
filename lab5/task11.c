@@ -1,63 +1,58 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
-#include <sys/types.h>
-#include <sys/ipc.h>
 #include <sys/msg.h>
 #include <sys/wait.h>
-
-#define MSG_KEY 12345
+#include <signal.h>
 
 struct message {
-    long mtype;
-    int number;
+    long type;
+    char dummy;
 };
 
-void producer(int qid) {
-    struct message msg;
-    msg.mtype = 1;
+static int queue_id;
 
-    for (int i = 1; i <= 5; i++) {
-        msg.number = i;
-
-        msgsnd(qid, &msg, sizeof(struct message) - sizeof(long), 0);
-        printf("Производитель: отправлено число %d\n", i);
-
-        msgrcv(qid, &msg, sizeof(struct message) - sizeof(long), 2, 0);
-        printf("Производитель: получено подтверждение для числа %d\n", i);
-
-        sleep(1);
-    }
-}
-
-void consumer(int qid) {
-    struct message msg;
-    struct message ack;
-    ack.mtype = 2;
-    ack.number = 0;
-
-    for (int i = 1; i <= 5; i++) {
-        msgrcv(qid, &msg, sizeof(struct message) - sizeof(long), 1, 0);
-        printf("Потребитель: получено число %d\n", msg.number);
-
-        msgsnd(qid, &ack, sizeof(struct message) - sizeof(long), 0);
-        printf("Потребитель: отправлено подтверждение\n");
-
-        sleep(1);
-    }
+void cleanup(int sig) {
+    msgctl(queue_id, IPC_RMID, NULL);
+    exit(0);
 }
 
 int main() {
-    int qid = msgget(MSG_KEY, IPC_CREAT | 0666);
-
-    if (fork() == 0) {
-        consumer(qid);
-        exit(0);
+    queue_id = msgget(IPC_PRIVATE, 0600);
+    if (queue_id == -1) {
+        perror("Ошиибка получения id очереди");
+        exit(1);
     }
 
-    producer(qid);
-    wait(NULL);
+    signal(SIGINT, cleanup);
 
-    msgctl(qid, IPC_RMID, NULL);
+    struct message msg = {0};
+    pid_t pid = fork();
+
+    if (pid > 0) {
+        while (1) {
+            printf("Родитель %d отправляет\n", getpid());
+            msg.type = 1;
+            msgsnd(queue_id, &msg, sizeof(msg.dummy), 0);
+
+            msgrcv(queue_id, &msg, sizeof(msg.dummy), 2, 0);
+            sleep(1);
+        }
+    }
+    else if (pid == 0) {
+        while (1) {
+            msgrcv(queue_id, &msg, sizeof(msg.dummy), 1, 0);
+            printf("Ребенок %d отвечает\n", getpid());
+
+            msg.type = 2;
+            msgsnd(queue_id, &msg, sizeof(msg.dummy), 0);
+            sleep(1);
+        }
+    }
+    else {
+        perror("Ошибка fork");
+        cleanup(0);
+    }
+
     return 0;
 }

@@ -1,72 +1,72 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
-#include <unistd.h>
-#include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/msg.h>
+#include <time.h>
 
-#define REQUEST_QUEUE_KEY 12345
-#define RESPONSE_QUEUE_KEY 12346
-#define MAX_TEXT 512
-
-struct request_msg {
-    long mtype;
-    pid_t client_pid;
-    char text[MAX_TEXT];
-};
-
-struct response_msg {
-    long mtype;
-    char text[MAX_TEXT];
-};
-
-int create_queue(key_t key) {
-    int qid = msgget(key, IPC_CREAT | 0666);
-    if (qid == -1) {
-        perror("msgget");
-        exit(1);
-    }
-    return qid;
-}
+#define MSG_LEN 32
+#define PROJECT_ID_REQ 123
+#define PROJECT_ID_RESP 124
+typedef struct {
+    long type;
+    char data[MSG_LEN];
+} Message;
 
 int main() {
-    int request_qid, response_qid;
-    struct request_msg request;
-    struct response_msg response;
 
-    request_qid = create_queue(REQUEST_QUEUE_KEY);
-    response_qid = create_queue(RESPONSE_QUEUE_KEY);
-
-    printf("Сервер запущен.\nОчередь запросов: %d\nОчередь ответов: %d\n",
-           request_qid, response_qid);
-
-    while (1) {
-        if (msgrcv(request_qid, &request, sizeof(request) - sizeof(long), 1, 0) == -1) {
-            perror("msgrcv");
-            exit(1);
-        }
-
-        printf("\nПолучен запрос от клиента (PID: %d): %s\n",
-               request.client_pid, request.text);
-
-        response.mtype = request.client_pid;
-        sprintf(response.text, "Сервер получил сообщение: %s", request.text);
-
-        if (msgsnd(response_qid, &response, sizeof(response) - sizeof(long), 0) == -1) {
-            perror("msgsnd");
-            exit(1);
-        }
-
-        if (strcmp(request.text, "exit") == 0) {
-            break;
-        }
+    key_t request_key = ftok(".", PROJECT_ID_REQ);
+    if (request_key == -1) {
+        perror("Ошибка создания ключа очереди запросов");
+        return 1;
     }
 
-    msgctl(request_qid, IPC_RMID, NULL);
-    msgctl(response_qid, IPC_RMID, NULL);
+    int request_queue = msgget(request_key, IPC_CREAT | 0666);
+    if (request_queue == -1) {
+        perror("Ошибка создания очереди запросов");
+        return 1;
+    }
 
+    key_t response_key = ftok(".", PROJECT_ID_RESP);
+    if (response_key == -1) {
+        perror("Ошибка создания ключа очереди ответов");
+        return 1;
+    }
+
+    int response_queue = msgget(response_key, IPC_CREAT | 0666);
+    if (response_queue == -1) {
+        perror("Ошибка создания очереди ответов");
+        return 1;
+    }
+
+    printf("Сервер запущен\n");
+    printf("ID очереди запросов: %d\n", request_queue);
+    printf("ID очереди ответов: %d\n", response_queue);
+
+    Message request, response;
+
+    while(1) {
+        if (msgrcv(request_queue, &request, sizeof(request.data), 0, 0) == -1) {
+            perror("Ошибка получения запроса");
+            break;
+        }
+
+        printf("\nПолучен запрос от клиента %ld: %s\n", request.type, request.data);
+
+        response.type = request.type;
+        strncpy(response.data, request.data, MSG_LEN - 1);
+        response.data[MSG_LEN - 1] = '\0';
+
+        if (msgsnd(response_queue, &response, sizeof(response.data), 0) == -1) {
+            perror("Ошибка отправки ответа");
+            break;
+        }
+
+        printf("Отправлен ответ клиенту %ld: %s\n", response.type, response.data);
+    }
+
+    msgctl(request_queue, IPC_RMID, NULL);
+    msgctl(response_queue, IPC_RMID, NULL);
     printf("Сервер завершил работу\n");
     return 0;
 }

@@ -1,70 +1,63 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <errno.h>
-#include <unistd.h>
-#include <sys/types.h>
 #include <sys/ipc.h>
 #include <sys/msg.h>
 
-#define SERVER_KEY 12345
-#define MAX_TEXT 512
+#define MSG_LEN 32
+#define PROJECT_ID 123
 
-struct request_msg {
-    long mtype;
-    int client_queue_id;
-    char text[MAX_TEXT];
-};
+typedef struct {
+    long type;
+    char data[MSG_LEN];
+} Message;
 
-struct response_msg {
-    long mtype;
-    char text[MAX_TEXT];
-};
-
-int create_queue(key_t key) {
-    int qid = msgget(key, IPC_CREAT | 0666);
-    if (qid == -1) {
-        perror("msgget");
-        exit(1);
+void process_message(char *message) {
+    for (int i = 0; message[i]; i++) {
+        message[i]--;
     }
-    return qid;
 }
 
-int main() {
-    int server_qid, client_qid;
-    struct request_msg request;
-    struct response_msg response;
+int main(int argc, char *argv[]) {
 
-    server_qid = create_queue(SERVER_KEY);
-    printf("Сервер запущен. ID очереди: %d\n", server_qid);
+    key_t server_key = ftok(".", PROJECT_ID);
+    if (server_key == -1) {
+        perror("Ошибка создания ключа");
+        return 1;
+    }
 
-    while (1) {
-        if (msgrcv(server_qid, &request, sizeof(request) - sizeof(long), 0, 0) == -1) {
-            perror("msgrcv");
-            exit(1);
-        }
+    int server_queue = msgget(server_key, IPC_CREAT | 0666);
+    if (server_queue == -1) {
+        perror("Ошибка создания очереди");
+        return 1;
+    }
 
-        printf("\nПолучен запрос от клиента (очередь: %d): %s\n",
-               request.client_queue_id, request.text);
+    printf("Сервер запущен. ID очереди: %d\n", server_queue);
 
-        response.mtype = 1;
-        sprintf(response.text, "Сервер получил сообщение: %s", request.text);
+    Message request, response;
 
-        if (msgsnd(request.client_queue_id, &response, sizeof(response) - sizeof(long), 0) == -1) {
-            perror("msgsnd");
-            exit(1);
-        }
-
-        if (strcmp(request.text, "exit") == 0) {
+    while(1) {
+        if (msgrcv(server_queue, &request, sizeof(request.data), 0, 0) == -1) {
+            perror("Ошибка получения запроса");
             break;
         }
+
+        printf("\nПолучен запрос от клиента %ld: %s\n", request.type, request.data);
+
+        response.type = 1;
+        strncpy(response.data, request.data, MSG_LEN - 1);
+        response.data[MSG_LEN - 1] = '\0';
+
+        process_message(response.data);
+
+        if (msgsnd(request.type, &response, sizeof(response.data), 0) == -1) {
+            perror("Ошибка отправки ответа");
+            break;
+        }
+
+        printf("Отправлен ответ: %s\n", response.data);
     }
 
-    if (msgctl(server_qid, IPC_RMID, NULL) == -1) {
-        perror("msgctl");
-        exit(1);
-    }
-
-    printf("Сервер завершил работу\n");
+    msgctl(server_queue, IPC_RMID, NULL);
     return 0;
 }
